@@ -1,0 +1,6 @@
+[submodule "auth-ms"]
+	path = auth-ms
+	url = git@github.com:Joel-Uzcategui/stays-auth-ms.git
+[submodule "api-gateway"]
+	path = api-gateway
+	url = git@github.com:Joel-Uzcategui/stays-api-gateway.git
