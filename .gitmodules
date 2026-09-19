@@ -4,3 +4,6 @@
 [submodule "api-gateway"]
 	path = api-gateway
 	url = git@github.com:Joel-Uzcategui/stays-api-gateway.git
+[submodule "catalog-ms"]
+	path = catalog-ms
+	url = git@github.com:Joel-Uzcategui/stays-catalog-ms.git

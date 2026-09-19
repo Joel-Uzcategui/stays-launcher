@@ -1,120 +1,138 @@
 # Uzcategui Stays — Launcher
 
-Orquestador del sistema de reservas. Este repositorio no tiene código de
-aplicación: contiene la infraestructura de desarrollo y los submódulos que
-apuntan a cada microservicio.
+Orchestrator for the booking system. This repository holds no application code:
+it contains the development infrastructure and the submodules pointing at each
+microservice.
 
-## Arquitectura
+## Architecture
 
-| Servicio | Repositorio | Responsabilidad |
+| Service | Repository | Responsibility |
 |---|---|---|
-| API Gateway | `stays-api-gateway` | Única entrada HTTP. Traduce peticiones a RPC |
-| Auth | `stays-auth-ms` | Usuarios, credenciales, JWT, refresh tokens |
-| Catálogo | `stays-catalog-ms` | Hoteles, tipos de habitación, amenidades |
-| Reservas | `stays-booking-ms` | Inventario, holds y reservas |
-| Pagos | `stays-payments-ms` | Stripe, webhooks, reembolsos |
-| Search | `stays-search-ms` | Índice de búsqueda |
-| Notificaciones | `stays-notifications-ms` | Emails |
+| API Gateway | `stays-api-gateway` | The only HTTP entry point. Translates requests into RPC |
+| Auth | `stays-auth-ms` | Users, credentials, JWT, refresh tokens |
+| Catalog | `stays-catalog-ms` | Hotels, room types, amenities |
+| Booking | `stays-booking-ms` | Inventory, holds and bookings |
+| Payments | `stays-payments-ms` | Stripe, webhooks, refunds |
+| Search | `stays-search-ms` | Search index |
+| Notifications | `stays-notifications-ms` | Emails |
 
-La comunicación pasa por RabbitMQ, usado de dos formas: **RPC** (`client.send()`)
-para el camino crítico, donde hay un usuario esperando respuesta, y **eventos**
-(`client.emit()`) para todo lo que puede ocurrir después.
+All communication goes through RabbitMQ, used in two ways: **RPC**
+(`client.send()`) for the critical path, where a user is waiting for a response,
+and **events** (`client.emit()`) for everything that can happen afterwards.
 
-## Desarrollo
+## Development
 
-1. Clonar el repositorio
+1. Clone the repository
 
-2. Reconstruir los submódulos:
+2. Restore the submodules:
    ```bash
    git submodule update --init --recursive
    ```
 
-3. Crear un `.env` a partir de `.env.template`:
+3. Create a `.env` from `.env.template`:
    ```bash
    cp .env.template .env
    ```
 
-4. Levantar la infraestructura:
+4. Start the infrastructure:
    ```bash
    docker compose up -d
    ```
-   Esto arranca PostgreSQL (puerto 5433) y RabbitMQ (5672, panel en 15672).
-   La primera vez crea una base de datos por servicio.
+   This brings up PostgreSQL (port 5433) and RabbitMQ (5672, management UI on
+   15672). On first run it creates one database per service.
 
-5. Arrancar los servicios. Todavía corren en local, no en contenedor:
+5. Start the services. They still run locally, not in containers:
    ```bash
    cd auth-ms     && npm install && npm run start:dev
    cd api-gateway && npm install && npm run start:dev
    ```
 
-Comprobar que todo está arriba:
+`auth-ms` also needs its Prisma client and schema before first use:
+
+```bash
+cd auth-ms
+npx prisma generate
+npx prisma migrate deploy
+npx prisma db seed
+```
+
+The generated client is gitignored, so `prisma generate` has to run on every
+machine. The seed creates the development admin.
+
+Check everything is up:
+
 ```bash
 docker compose ps
 curl http://localhost:3002/api/health
 ```
 
-## Bases de datos
+## Databases
 
-Una por servicio, todas dentro del mismo contenedor de PostgreSQL. La separación
-es real: PostgreSQL no permite consultas entre bases de datos distintas, así que
-ningún servicio puede leer las tablas de otro aunque lo intentara.
+One per service, all inside the same PostgreSQL container. The separation is
+real: PostgreSQL does not allow queries across databases, so no service can read
+another service's tables even if it tried.
 
-Se crean **solo la primera vez** que arranca el contenedor, desde
-`infra/postgres/init-databases.sh`. Si añades un servicio nuevo después, crea su
-base a mano:
+They are created **only the first time** the container starts, from
+`infra/postgres/init-databases.sh`. If you add a new service later, create its
+database by hand:
 
 ```bash
-docker exec -it stays-postgres psql -U stays -c "CREATE DATABASE nueva;"
+docker exec -it stays-postgres psql -U stays -c "CREATE DATABASE newdb;"
 ```
 
-O borra el volumen y vuelve a empezar, perdiendo los datos:
+Or drop the volume and start over, losing the data:
 
 ```bash
 docker compose down -v && docker compose up -d
 ```
 
-## Submódulos de Git
+## Git submodules
 
-Cada microservicio es un repositorio independiente enganchado aquí como
-submódulo. El launcher no guarda su código: guarda **a qué commit apunta** cada
-uno.
+Each microservice is an independent repository attached here as a submodule. The
+launcher does not store their code: it stores **which commit each one points
+at**.
 
-Añadir uno nuevo:
+Add a new one:
 
 ```bash
 git submodule add git@github.com:Joel-Uzcategui/stays-catalog-ms.git catalog-ms
 git add .
-git commit -m "chore: añadir catalog-ms como submódulo"
+git commit -m "add catalog-ms submodule"
 git push
 ```
 
-El segundo argumento es la ruta local, por eso la carpeta queda como `catalog-ms`
-aunque el repositorio se llame `stays-catalog-ms`.
+The second argument is the local path, which is why the folder is `catalog-ms`
+even though the repository is named `stays-catalog-ms`.
 
-Actualizar las referencias a la última versión de cada servicio:
+Move the references to the latest commit of each service:
 
 ```bash
 git submodule update --remote
 ```
 
-### Importante: el orden de los push
+### Important: push order
 
-Si tocas código dentro de un submódulo, **primero haz commit y push en el
-submódulo y después en el launcher.**
+If you change code inside a submodule, **commit and push the submodule first,
+then the launcher.**
 
-Al revés, el launcher acaba apuntando a un commit que no existe en el remoto y
-quien clone el proyecto se encontrará con submódulos que no puede inicializar.
+The other way around, the launcher ends up pointing at a commit that does not
+exist on the remote, and anyone cloning the project gets submodules they cannot
+initialize.
 
-## Variables de entorno
+## Environment variables
 
-Todas en `.env.template`. Las que importan:
+All of them live in `.env.template`. The ones that matter:
 
-| Variable | Para qué |
+| Variable | Purpose |
 |---|---|
-| `POSTGRES_PORT` | 5433 por defecto, para no chocar con un PostgreSQL local |
-| `SERVICE_DATABASES` | Bases que se crean al inicializar el contenedor |
-| `JWT_SECRET` | Compartido: auth-ms firma, api-gateway verifica |
+| `POSTGRES_PORT` | 5433 by default, to avoid clashing with a local PostgreSQL |
+| `SERVICE_DATABASES` | Databases created when the container is initialized |
+| `JWT_PUBLIC_KEY` | Base64 RS256 public key. Verifies signatures, cannot issue tokens |
 
-El `.env` está en el `.gitignore` y no debe subirse nunca. El historial de un
-repositorio es permanente: un secreto commiteado sigue ahí aunque se borre en un
-commit posterior.
+Tokens are signed with **RS256**: `auth-ms` holds the private key and is the only
+service that can issue tokens. Every other service gets the public key and can
+only verify. With a symmetric secret, any service able to verify a token would
+also be able to forge one.
+
+`.env` is gitignored and must never be committed. Repository history is
+permanent: a secret committed once stays there even if a later commit removes it.
