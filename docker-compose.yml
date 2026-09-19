@@ -40,6 +40,76 @@ services:
       timeout: 10s
       retries: 10
 
+  auth-ms:
+    build:
+      context: ./auth-ms
+      dockerfile: Dockerfile.dev
+    container_name: stays-auth-ms
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./auth-ms/src:/usr/src/app/src
+      - /usr/src/app/src/generated
+      - /usr/src/app/node_modules
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/auth
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: auth_queue
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN_DAYS: ${JWT_REFRESH_EXPIRES_IN_DAYS:-30}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME}
+
+  catalog-ms:
+    build:
+      context: ./catalog-ms
+      dockerfile: Dockerfile.dev
+    container_name: stays-catalog-ms
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./catalog-ms/src:/usr/src/app/src
+      - /usr/src/app/src/generated
+      - /usr/src/app/node_modules
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/catalog
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: catalog_queue
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile.dev
+    container_name: stays-api-gateway
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${API_GATEWAY_PORT:-3002}:3000"
+    volumes:
+      - ./api-gateway/src:/usr/src/app/src
+      - /usr/src/app/node_modules
+    environment:
+      PORT: 3000
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      AUTH_QUEUE: auth_queue
+      CATALOG_QUEUE: catalog_queue
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+
 volumes:
   postgres-data:
   rabbitmq-data:

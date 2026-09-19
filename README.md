@@ -20,51 +20,73 @@ All communication goes through RabbitMQ, used in two ways: **RPC**
 (`client.send()`) for the critical path, where a user is waiting for a response,
 and **events** (`client.emit()`) for everything that can happen afterwards.
 
-## Development
+## Getting started
 
-1. Clone the repository
-
-2. Restore the submodules:
+1. Clone and restore the submodules:
    ```bash
    git submodule update --init --recursive
    ```
 
-3. Create a `.env` from `.env.template`:
+2. Generate the RS256 key pair. `auth-ms` signs with the private key; every
+   other service verifies with the public one:
+   ```bash
+   openssl genrsa -out jwt-private.pem 2048
+   openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
+   base64 -w0 jwt-private.pem
+   base64 -w0 jwt-public.pem
+   ```
+
+3. Create the `.env` and paste both base64 strings into `JWT_PRIVATE_KEY` and
+   `JWT_PUBLIC_KEY`:
    ```bash
    cp .env.template .env
    ```
 
-4. Start the infrastructure:
+4. Start everything:
    ```bash
    docker compose up -d
    ```
-   This brings up PostgreSQL (port 5433) and RabbitMQ (5672, management UI on
-   15672). On first run it creates one database per service.
 
-5. Start the services. They still run locally, not in containers:
+5. Seed the development data:
    ```bash
-   cd auth-ms     && npm install && npm run start:dev
-   cd api-gateway && npm install && npm run start:dev
+   docker compose exec auth-ms npx prisma db seed
+   docker compose exec catalog-ms npx prisma db seed
    ```
 
-`auth-ms` also needs its Prisma client and schema before first use:
-
-```bash
-cd auth-ms
-npx prisma generate
-npx prisma migrate deploy
-npx prisma db seed
-```
-
-The generated client is gitignored, so `prisma generate` has to run on every
-machine. The seed creates the development admin.
-
-Check everything is up:
+Check it is running:
 
 ```bash
 docker compose ps
 curl http://localhost:3002/api/health
 ```
+
+## Daily use
+
+```bash
+docker compose up -d              # start
+docker compose logs -f            # follow all logs
+docker compose logs -f auth-ms    # follow one service
+docker compose down               # stop, keeping data
+docker compose down -v            # stop and wipe the databases
+```
+
+Each service mounts its `src` from the host, so saving a file recompiles and
+restarts that container. No rebuild needed unless dependencies change:
+
+```bash
+docker compose up -d --build
+```
+
+## Ports
+
+| | Port |
+|---|---|
+| API Gateway | 3002 |
+| PostgreSQL | 5433 |
+| RabbitMQ | 5672 |
+| RabbitMQ management UI | 15672 |
+
+PostgreSQL is mapped to 5433 to avoid clashing with a local install on 5432.
 
 ## Databases
 
@@ -72,19 +94,25 @@ One per service, all inside the same PostgreSQL container. The separation is
 real: PostgreSQL does not allow queries across databases, so no service can read
 another service's tables even if it tried.
 
-They are created **only the first time** the container starts, from
-`infra/postgres/init-databases.sh`. If you add a new service later, create its
-database by hand:
+They are created the first time the container starts, from
+`infra/postgres/init-databases.sh`. Migrations run automatically on every
+service start via `prisma migrate deploy`, which is idempotent.
+
+To add a database for a new service later:
 
 ```bash
 docker exec -it stays-postgres psql -U stays -c "CREATE DATABASE newdb;"
 ```
 
-Or drop the volume and start over, losing the data:
+## Authentication
 
-```bash
-docker compose down -v && docker compose up -d
-```
+Tokens are signed with **RS256**. `auth-ms` holds the private key and is the
+only service that can issue tokens; everything else gets the public key and can
+only verify. With a symmetric secret, any service able to verify a token would
+also be able to forge one.
+
+The gateway verifies signatures locally, without calling `auth-ms` on every
+request.
 
 ## Git submodules
 
@@ -95,14 +123,12 @@ at**.
 Add a new one:
 
 ```bash
-git submodule add git@github.com:Joel-Uzcategui/stays-catalog-ms.git catalog-ms
-git add .
-git commit -m "add catalog-ms submodule"
-git push
+git submodule add git@github.com:Joel-Uzcategui/stays-booking-ms.git booking-ms
+git add . && git commit -m "add booking-ms submodule" && git push
 ```
 
-The second argument is the local path, which is why the folder is `catalog-ms`
-even though the repository is named `stays-catalog-ms`.
+The second argument is the local path, which is why the folder is `booking-ms`
+even though the repository is named `stays-booking-ms`.
 
 Move the references to the latest commit of each service:
 
@@ -121,18 +147,19 @@ initialize.
 
 ## Environment variables
 
-All of them live in `.env.template`. The ones that matter:
+All of them live in `.env.template`.
 
 | Variable | Purpose |
 |---|---|
 | `POSTGRES_PORT` | 5433 by default, to avoid clashing with a local PostgreSQL |
 | `SERVICE_DATABASES` | Databases created when the container is initialized |
-| `JWT_PUBLIC_KEY` | Base64 RS256 public key. Verifies signatures, cannot issue tokens |
-
-Tokens are signed with **RS256**: `auth-ms` holds the private key and is the only
-service that can issue tokens. Every other service gets the public key and can
-only verify. With a symmetric secret, any service able to verify a token would
-also be able to forge one.
+| `JWT_PRIVATE_KEY` | Base64 RS256 private key. Used only by `auth-ms` |
+| `JWT_PUBLIC_KEY` | Base64 RS256 public key. Shared with every service |
+| `SEED_ADMIN_*` | Development admin created by the seed |
 
 `.env` is gitignored and must never be committed. Repository history is
 permanent: a secret committed once stays there even if a later commit removes it.
+
+The seeded admin exists for development only. In production the first
+administrator is created with a CLI command, never from a seed whose credentials
+live in a public repository.
