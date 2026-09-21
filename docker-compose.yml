@@ -53,6 +53,7 @@ services:
         condition: service_healthy
     volumes:
       - ./auth-ms/src:/usr/src/app/src
+      - ./auth-ms/prisma:/usr/src/app/prisma
       - /usr/src/app/src/generated
       - /usr/src/app/node_modules
     command: sh -c "npx prisma migrate deploy && npm run start:dev"
@@ -81,6 +82,7 @@ services:
         condition: service_healthy
     volumes:
       - ./catalog-ms/src:/usr/src/app/src
+      - ./catalog-ms/prisma:/usr/src/app/prisma
       - /usr/src/app/src/generated
       - /usr/src/app/node_modules
     command: sh -c "npx prisma migrate deploy && npm run start:dev"
