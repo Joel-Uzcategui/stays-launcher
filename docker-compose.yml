@@ -40,6 +40,37 @@ services:
       timeout: 10s
       retries: 10
 
+  redis:
+    image: redis:8-alpine
+    container_name: stays-redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.0
+    container_name: stays-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
   auth-ms:
     build:
       context: ./auth-ms
@@ -80,6 +111,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./catalog-ms/src:/usr/src/app/src
       - ./catalog-ms/prisma:/usr/src/app/prisma
@@ -90,6 +123,29 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/catalog
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_QUEUE: catalog_queue
+      SEARCH_QUEUE: search_queue
+      REDIS_URL: redis://redis:6379
+
+  search-ms:
+    build:
+      context: ./search-ms
+      dockerfile: Dockerfile.dev
+    container_name: stays-search-ms
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./search-ms/src:/usr/src/app/src
+      - /usr/src/app/node_modules
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: search_queue
+      CATALOG_QUEUE: catalog_queue
+      ELASTICSEARCH_NODE: http://elasticsearch:9200
+      HOTELS_ALIAS: hotels
 
   api-gateway:
     build:
@@ -110,8 +166,10 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       AUTH_QUEUE: auth_queue
       CATALOG_QUEUE: catalog_queue
+      SEARCH_QUEUE: search_queue
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
 
 volumes:
   postgres-data:
   rabbitmq-data:
+  elasticsearch-data:
