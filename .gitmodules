@@ -10,3 +10,6 @@
 [submodule "search-ms"]
 	path = search-ms
 	url = git@github.com:Joel-Uzcategui/stays-search-ms.git
+[submodule "booking-ms"]
+	path = booking-ms
+	url = git@github.com:Joel-Uzcategui/stays-booking-ms.git

@@ -124,7 +124,32 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_QUEUE: catalog_queue
       SEARCH_QUEUE: search_queue
+      BOOKING_QUEUE: booking_queue
       REDIS_URL: redis://redis:6379
+
+  booking-ms:
+    build:
+      context: ./booking-ms
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./booking-ms/src:/usr/src/app/src
+      - ./booking-ms/prisma:/usr/src/app/prisma
+      - /usr/src/app/src/generated
+      - /usr/src/app/node_modules
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/booking
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: booking_queue
+      CATALOG_QUEUE: catalog_queue
+      HOLD_TTL_MINUTES: ${HOLD_TTL_MINUTES:-15}
+      BOOKING_STRATEGY: ${BOOKING_STRATEGY:-atomic}
 
   search-ms:
     build:
@@ -167,6 +192,7 @@ services:
       AUTH_QUEUE: auth_queue
       CATALOG_QUEUE: catalog_queue
       SEARCH_QUEUE: search_queue
+      BOOKING_QUEUE: booking_queue
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
 
 volumes:
