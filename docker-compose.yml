@@ -148,8 +148,40 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_QUEUE: booking_queue
       CATALOG_QUEUE: catalog_queue
+      PAYMENT_QUEUE: payment_queue
       HOLD_TTL_MINUTES: ${HOLD_TTL_MINUTES:-15}
+      PAYMENT_WINDOW_MINUTES: ${PAYMENT_WINDOW_MINUTES:-15}
+      REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-2}
       BOOKING_STRATEGY: ${BOOKING_STRATEGY:-atomic}
+
+  payment-ms:
+    build:
+      context: ./payment-ms
+      dockerfile: Dockerfile.dev
+    container_name: stays-payment-ms
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${PAYMENT_MS_PORT:-3003}:3003"
+    volumes:
+      - ./payment-ms/src:/usr/src/app/src
+      - ./payment-ms/prisma:/usr/src/app/prisma
+      - /usr/src/app/src/generated
+      - /usr/src/app/node_modules
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/payments
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: payment_queue
+      BOOKING_QUEUE: booking_queue
+      ABANDON_AFTER_MINUTES: ${ABANDON_AFTER_MINUTES:-30}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
 
   search-ms:
     build:
@@ -193,6 +225,7 @@ services:
       CATALOG_QUEUE: catalog_queue
       SEARCH_QUEUE: search_queue
       BOOKING_QUEUE: booking_queue
+      PAYMENT_QUEUE: payment_queue
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
 
 volumes:

@@ -13,3 +13,6 @@
 [submodule "booking-ms"]
 	path = booking-ms
 	url = git@github.com:Joel-Uzcategui/stays-booking-ms.git
+[submodule "payment-ms"]
+	path = payment-ms
+	url = git@github.com:Joel-Uzcategui/stays-payment-ms.git
