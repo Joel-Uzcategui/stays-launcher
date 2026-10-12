@@ -16,3 +16,6 @@
 [submodule "payment-ms"]
 	path = payment-ms
 	url = git@github.com:Joel-Uzcategui/stays-payment-ms.git
+[submodule "notification-ms"]
+	path = notification-ms
+	url = git@github.com:Joel-Uzcategui/stays-notification-ms.git

@@ -149,6 +149,7 @@ services:
       RABBITMQ_QUEUE: booking_queue
       CATALOG_QUEUE: catalog_queue
       PAYMENT_QUEUE: payment_queue
+      NOTIFICATION_QUEUE: notification_queue
       HOLD_TTL_MINUTES: ${HOLD_TTL_MINUTES:-15}
       PAYMENT_WINDOW_MINUTES: ${PAYMENT_WINDOW_MINUTES:-15}
       REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-2}
@@ -179,10 +180,42 @@ services:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
       RABBITMQ_QUEUE: payment_queue
       BOOKING_QUEUE: booking_queue
+      NOTIFICATION_QUEUE: notification_queue
       ABANDON_AFTER_MINUTES: ${ABANDON_AFTER_MINUTES:-30}
       AUTHENTICATION_WINDOW_MINUTES: ${AUTHENTICATION_WINDOW_MINUTES:-60}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+
+  notification-ms:
+    build:
+      context: ./notification-ms
+      dockerfile: Dockerfile.dev
+    container_name: stays-notification-ms
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./notification-ms/src:/usr/src/app/src
+      - ./notification-ms/prisma:/usr/src/app/prisma
+      - /usr/src/app/src/generated
+      - /usr/src/app/node_modules
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notifications
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: notification_queue
+      AUTH_QUEUE: auth_queue
+      SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${BREVO_SMTP_USER}
+      SMTP_PASSWORD: ${BREVO_SMTP_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Uzcategui Stays}
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      MAX_DELIVERY_ATTEMPTS: ${MAX_DELIVERY_ATTEMPTS:-5}
 
   search-ms:
     build:
