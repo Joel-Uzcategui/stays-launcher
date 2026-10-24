@@ -120,7 +120,17 @@ services:
     image: ghcr.io/joel-uzcategui/stays-api-gateway:${API_GATEWAY_TAG}
     container_name: stays-api-gateway
     restart: unless-stopped
-    networks: [stays]
+    networks: [stays, traefik-net]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-net
+      - traefik.http.routers.stays-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.stays-api.entrypoints=https
+      - traefik.http.routers.stays-api.tls.certresolver=letsEncrypt
+      - traefik.http.services.stays-api.loadbalancer.server.port=3000
+      - traefik.http.routers.stays-api.middlewares=stays-api-ratelimit
+      - traefik.http.middlewares.stays-api-ratelimit.ratelimit.average=50
+      - traefik.http.middlewares.stays-api-ratelimit.ratelimit.burst=100
     environment:
       PORT: 3000
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
