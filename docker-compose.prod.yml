@@ -1,0 +1,138 @@
+name: stays
+
+services:
+
+  auth-ms:
+    image: ghcr.io/joel-uzcategui/stays-auth-ms:${AUTH_MS_TAG}
+    container_name: stays-auth-ms
+    restart: unless-stopped
+    networks: [stays]
+    command: sh -c "npx prisma migrate deploy && node dist/main"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/auth
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: auth_queue
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN_DAYS: ${JWT_REFRESH_EXPIRES_IN_DAYS:-30}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME}
+
+  catalog-ms:
+    image: ghcr.io/joel-uzcategui/stays-catalog-ms:${CATALOG_MS_TAG}
+    container_name: stays-catalog-ms
+    restart: unless-stopped
+    networks: [stays]
+    command: sh -c "npx prisma migrate deploy && node dist/main"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/catalog
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: catalog_queue
+      SEARCH_QUEUE: search_queue
+      BOOKING_QUEUE: booking_queue
+      REDIS_URL: redis://redis:6379
+
+  booking-ms:
+    image: ghcr.io/joel-uzcategui/stays-booking-ms:${BOOKING_MS_TAG}
+    container_name: stays-booking-ms
+    restart: unless-stopped
+    networks: [stays]
+    command: sh -c "npx prisma migrate deploy && node dist/main"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/booking
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: booking_queue
+      CATALOG_QUEUE: catalog_queue
+      PAYMENT_QUEUE: payment_queue
+      NOTIFICATION_QUEUE: notification_queue
+      HOLD_TTL_MINUTES: ${HOLD_TTL_MINUTES:-15}
+      PAYMENT_WINDOW_MINUTES: ${PAYMENT_WINDOW_MINUTES:-15}
+      REFUND_WINDOW_DAYS: ${REFUND_WINDOW_DAYS:-2}
+      BOOKING_STRATEGY: ${BOOKING_STRATEGY:-atomic}
+
+  payment-ms:
+    image: ghcr.io/joel-uzcategui/stays-payment-ms:${PAYMENT_MS_TAG}
+    container_name: stays-payment-ms
+    restart: unless-stopped
+    networks: [stays, traefik-net]
+    command: sh -c "npx prisma migrate deploy && node dist/main"
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/payments
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: payment_queue
+      BOOKING_QUEUE: booking_queue
+      NOTIFICATION_QUEUE: notification_queue
+      ABANDON_AFTER_MINUTES: ${ABANDON_AFTER_MINUTES:-30}
+      AUTHENTICATION_WINDOW_MINUTES: ${AUTHENTICATION_WINDOW_MINUTES:-60}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3003/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-net
+      - traefik.http.routers.stays-stripe.rule=Host(`${DOMAIN}`) && Path(`/payments/webhook`)
+      - traefik.http.routers.stays-stripe.entrypoints=https
+      - traefik.http.routers.stays-stripe.tls.certresolver=letsEncrypt
+      - traefik.http.routers.stays-stripe.priority=100
+      - traefik.http.services.stays-stripe.loadbalancer.server.port=3003
+
+  notification-ms:
+    image: ghcr.io/joel-uzcategui/stays-notification-ms:${NOTIFICATION_MS_TAG}
+    container_name: stays-notification-ms
+    restart: unless-stopped
+    networks: [stays]
+    command: sh -c "npx prisma migrate deploy && node dist/main"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notifications
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: notification_queue
+      AUTH_QUEUE: auth_queue
+      SMTP_HOST: ${SMTP_HOST:-smtp-relay.brevo.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${BREVO_SMTP_USER}
+      SMTP_PASSWORD: ${BREVO_SMTP_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Uzcategui Stays}
+      WEB_URL: https://${DOMAIN}
+      MAX_DELIVERY_ATTEMPTS: ${MAX_DELIVERY_ATTEMPTS:-5}
+
+  search-ms:
+    image: ghcr.io/joel-uzcategui/stays-search-ms:${SEARCH_MS_TAG}
+    container_name: stays-search-ms
+    restart: unless-stopped
+    networks: [stays]
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      RABBITMQ_QUEUE: search_queue
+      CATALOG_QUEUE: catalog_queue
+      ELASTICSEARCH_NODE: http://elasticsearch:9200
+      HOTELS_ALIAS: hotels
+
+  api-gateway:
+    image: ghcr.io/joel-uzcategui/stays-api-gateway:${API_GATEWAY_TAG}
+    container_name: stays-api-gateway
+    restart: unless-stopped
+    networks: [stays]
+    environment:
+      PORT: 3000
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672
+      AUTH_QUEUE: auth_queue
+      CATALOG_QUEUE: catalog_queue
+      SEARCH_QUEUE: search_queue
+      BOOKING_QUEUE: booking_queue
+      PAYMENT_QUEUE: payment_queue
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+
+networks:
+  stays:
+    external: true
+  traefik-net:
+    external: true
